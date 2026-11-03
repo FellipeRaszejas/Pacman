@@ -114,15 +114,21 @@ public class GamePanel extends JPanel {
         }
         desenharPacman(g2, engine.getPacman(), celula, offX, offY);
 
-        if (engine.getEstado() == EstadoJogo.GAME_OVER) {
+               EstadoJogo estado = engine.getEstado();
+        if (estado == EstadoJogo.PRONTO) {
+            desenharPronto(g2, lab, celula, offX, offY);
+        } else if (estado == EstadoJogo.GAME_OVER) {
             desenharFim(g2, "GAME OVER", COR_DERROTA);
-        } else if (engine.getEstado() == EstadoJogo.VITORIA) {
+        } else if (estado == EstadoJogo.VITORIA) {
             desenharFim(g2, "VOCÊ VENCEU!", COR_VITORIA);
         }
         g2.dispose();
     }
-
     /** Faixa superior: pontuação à esquerda e itens restantes à direita, alinhados ao mapa. */
+    /**
+     * Faixa superior: pontuação à esquerda, vidas no centro e itens restantes à
+     * direita.
+     */
     private void desenharHud(Graphics2D g, int celula, int offX, int topo, int larguraMapa) {
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, (int) (celula * 0.8))));
         g.setColor(Color.WHITE);
@@ -133,6 +139,18 @@ public class GamePanel extends JPanel {
 
         String restantes = "ITENS: " + engine.getItensRestantes();
         g.drawString(restantes, offX + larguraMapa - fm.stringWidth(restantes), baseline);
+
+        // Vidas: um círculo amarelo para cada vida restante.
+        int diametro = (int) (celula * 0.8);
+        int espaco = (int) (celula * 0.3);
+        int vidas = engine.getVidas();
+        int total = vidas * diametro + Math.max(0, vidas - 1) * espaco;
+        int x = offX + (larguraMapa - total) / 2;
+        int y = topo + (int) (celula * 0.55);
+        g.setColor(COR_PACMAN);
+        for (int i = 0; i < vidas; i++) {
+            g.fillOval(x + i * (diametro + espaco), y, diametro, diametro);
+        }
     }
 
     /** Contorna apenas as faces das paredes voltadas para corredores. */
@@ -199,7 +217,21 @@ public class GamePanel extends JPanel {
         g.fillRoundRect(px, py, lado, lado, lado / 3, lado / 3);
     }
 
-    /** Tela de fim de partida (derrota ou vitória): título, pontuação final e instruções. */
+    /** "PRONTO!" logo abaixo da casa dos fantasmas, como no jogo clássico. */
+    private void desenharPronto(Graphics2D g, Labirinto lab, int celula, int offX, int offY) {
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, celula)));
+        g.setColor(COR_PACMAN);
+        String texto = "PRONTO!";
+        FontMetrics fm = g.getFontMetrics();
+        int centro = offX + lab.getColunas() * celula / 2;
+        int baseline = offY + (lab.getLinhas() / 2 + 2) * celula + (int) (celula * 0.8);
+        g.drawString(texto, centro - fm.stringWidth(texto) / 2, baseline);
+    }
+
+    /**
+     * Tela de fim de partida (derrota ou vitória): título, pontuação final e
+     * instruções.
+     */
     private void desenharFim(Graphics2D g, String titulo, Color corTitulo) {
         g.setColor(new Color(0, 0, 0, 170));
         g.fillRect(0, 0, getWidth(), getHeight());

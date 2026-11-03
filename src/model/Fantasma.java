@@ -5,48 +5,82 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Personagem inimigo com movimento aleatório.
+ * Personagem inimigo. Todos os fantasmas andam igual (herdam o movimento em grade
+ * de {@link Personagem}) e respeitam as mesmas regras de trajeto: nunca atravessam
+ * paredes e só dão meia-volta em beco sem saída. O que muda de um para outro é
+ * <b>como escolhem a direção</b> quando têm mais de uma saída: é o método abstrato
+ * {@link #decidirDirecao}, que cada subclasse implementa à sua maneira.
  * <p>
- * Regra: a cada centro de célula o fantasma olha as saídas livres (sem contar a
- * meia-volta). Em corredor ou curva ele simplesmente segue. Em uma interseção,
- * ele muda de direção com probabilidade {@code chanceDeMudar}; caso contrário
- * continua reto. Só dá meia-volta em beco sem saída.
- * <p>
- * Cada subclasse define cor, velocidade e chance de mudança próprias.
+ * Corredores e curvas (uma só saída) são resolvidos aqui, sem consultar a subclasse.
  */
 public abstract class Fantasma extends Personagem {
 
     public static final double TAMANHO = 0.8;
 
-    private final double chanceDeMudar;
     private final int cor; // 0xRRGGBB, para o modelo não depender de AWT
+    private final double atrasoDeSaida;
+    private final Pacman alvo;
     private final Random random;
 
-    protected Fantasma(int coluna, int linha, double velocidade,
-                       double chanceDeMudar, int cor, Random random) {
+    /**
+     * @param atrasoDeSaida segundos que o fantasma espera parado no início de cada rodada
+     * @param alvo          o Pacman que o fantasma pode perseguir
+     */
+    protected Fantasma(int coluna, int linha, double velocidade, int cor,
+                       double atrasoDeSaida, Pacman alvo, Random random) {
         super(coluna, linha, TAMANHO, velocidade);
-        if (!(chanceDeMudar >= 0.0 && chanceDeMudar <= 1.0)) {
-            throw new IllegalArgumentException("A chance de mudar deve estar entre 0 e 1.");
+        if (!(atrasoDeSaida >= 0.0)) {
+            throw new IllegalArgumentException("O atraso de saída não pode ser negativo.");
+        }
+        if (alvo == null) {
+            throw new IllegalArgumentException("O alvo (Pacman) não pode ser nulo.");
         }
         if (random == null) {
             throw new IllegalArgumentException("O gerador aleatório não pode ser nulo.");
         }
-        this.chanceDeMudar = chanceDeMudar;
         this.cor = cor;
+        this.atrasoDeSaida = atrasoDeSaida;
+        this.alvo = alvo;
         this.random = random;
     }
 
-    public double getChanceDeMudar() {
-        return chanceDeMudar;
-    }
-
-    /** Cor no formato 0xRRGGBB. */
+    /** Cor no formato 0xRRGGBB. Subclasses podem mudar de cor conforme o estado. */
     public int getCor() {
         return cor;
     }
 
+    public double getAtrasoDeSaida() {
+        return atrasoDeSaida;
+    }
+
+    protected final Random getRandom() {
+        return random;
+    }
+
+    /** Coluna da célula mais próxima do Pacman. */
+    protected final int colunaDoAlvo() {
+        return (int) Math.round(alvo.getX());
+    }
+
+    /** Linha da célula mais próxima do Pacman. */
+    protected final int linhaDoAlvo() {
+        return (int) Math.round(alvo.getY());
+    }
+
+    protected final Pacman getAlvo() {
+        return alvo;
+    }
+
+    /**
+     * Escolhe a direção entre duas ou mais saídas livres.
+     *
+     * @param opcoes saídas livres, sem a meia-volta; sempre tem 2 ou mais itens
+     * @return uma das {@code opcoes}
+     */
+    protected abstract Direction decidirDirecao(Labirinto labirinto, List<Direction> opcoes);
+
     @Override
-    protected Direction escolherDirecao(Labirinto labirinto) {
+    protected final Direction escolherDirecao(Labirinto labirinto) {
         Direction atual = getDirecao();
 
         List<Direction> opcoes = new ArrayList<>(4);
@@ -61,19 +95,46 @@ public abstract class Fantasma extends Personagem {
             // Beco sem saída: a única saída é voltar por onde veio.
             return atual == null ? null : atual.opposite();
         }
-
-        boolean podeSeguirReto = atual != null && opcoes.contains(atual);
-        if (podeSeguirReto) {
-            if (opcoes.size() == 1 || random.nextDouble() >= chanceDeMudar) {
-                return atual;
-            }
-            // Interseção e decidiu mudar: escolhe entre as outras saídas.
-            List<Direction> outras = new ArrayList<>(opcoes);
-            outras.remove(atual);
-            return outras.get(random.nextInt(outras.size()));
+        if (opcoes.size() == 1) {
+            return opcoes.get(0); // corredor ou curva: não há o que decidir
         }
 
-        // Curva (parede à frente) ou primeiro passo: sorteia entre as saídas livres.
-        return opcoes.get(random.nextInt(opcoes.size()));
+        Direction escolha = decidirDirecao(labirinto, opcoes);
+        if (!opcoes.contains(escolha)) {
+            // Uma subclasse com defeito não pode quebrar o jogo nem atravessar parede.
+            return opcoes.get(random.nextInt(opcoes.size()));
+        }
+        return escolha;
+    }
+
+    /**
+     * Entre as opções, escolhe a que deixa o fantasma mais perto do alvo.
+     *
+     * @param distancias resultado de {@link Labirinto#calcularDistancias} até o alvo
+     */
+    protected final Direction aproximar(int[][] distancias, List<Direction> opcoes) {
+        return melhorOpcao(distancias, opcoes, true);
+    }
+
+    /** Entre as opções, escolhe a que deixa o fantasma mais longe do alvo. */
+    protected final Direction afastar(int[][] distancias, List<Direction> opcoes) {
+        return melhorOpcao(distancias, opcoes, false);
+    }
+
+    private Direction melhorOpcao(int[][] distancias, List<Direction> opcoes, boolean menor) {
+        List<Direction> melhores = new ArrayList<>(4);
+        int melhorValor = 0;
+        for (Direction d : opcoes) {
+            int valor = distancias[getLinha() + d.getDy()][getColuna() + d.getDx()];
+            if (melhores.isEmpty() || (menor ? valor < melhorValor : valor > melhorValor)) {
+                melhores.clear();
+                melhores.add(d);
+                melhorValor = valor;
+            } else if (valor == melhorValor) {
+                melhores.add(d);
+            }
+        }
+        // Empate: sorteia, para o fantasma não ficar previsível demais.
+        return melhores.get(random.nextInt(melhores.size()));
     }
 }

@@ -4,21 +4,24 @@ package model;
  * Entidade que anda pelo labirinto, de célula em célula, sempre em uma das
  * quatro direções.
  * <p>
- * O movimento é um <b>método-modelo</b> (template method): {@link #atualizar} cuida
- * de andar, respeitar paredes e nunca sair do mapa. Quem decide <i>para onde ir</i>
+ * O movimento é um <b>método-modelo</b> (template method): {@link #atualizar}
+ * cuida
+ * de andar, respeitar paredes e nunca sair do mapa. Quem decide <i>para onde
+ * ir</i>
  * a cada centro de célula é o método abstrato {@link #escolherDirecao}, que o
- * {@link Pacman} (teclado) e os {@link Fantasma fantasmas} (aleatório) implementam
+ * {@link Pacman} (teclado) e os {@link Fantasma fantasmas} (aleatório)
+ * implementam
  * de formas diferentes. É aqui que acontece o polimorfismo do jogo.
  */
 public abstract class Personagem extends Entidade {
 
     private static final double EPSILON = 1e-9;
 
-    private int coluna;            // célula de origem do passo atual
+    private int coluna; // célula de origem do passo atual
     private int linha;
-    private Direction direcao;     // direção do passo atual (última, se estiver parado)
-    private double progresso;      // 0 = no centro da célula; vai até 1 = próxima célula
-    private double velocidade;     // células por segundo
+    private Direction direcao; // direção do passo atual (última, se estiver parado)
+    private double progresso; // 0 = no centro da célula; vai até 1 = próxima célula
+    private double velocidade; // células por segundo
 
     protected Personagem(int coluna, int linha, double tamanho, double velocidade) {
         super(coluna, linha, tamanho);
@@ -37,7 +40,10 @@ public abstract class Personagem extends Entidade {
         return linha;
     }
 
-    /** Direção atual de movimento; mantém o último valor se o personagem estiver parado; null antes do primeiro passo. */
+    /**
+     * Direção atual de movimento; mantém o último valor se o personagem estiver
+     * parado; null antes do primeiro passo.
+     */
     public Direction getDirecao() {
         return direcao;
     }
@@ -60,7 +66,19 @@ public abstract class Personagem extends Entidade {
      */
     protected abstract Direction escolherDirecao(Labirinto labirinto);
 
-    /** Indica se a célula vizinha na direção dada é um corredor (a partir da célula atual). */
+    /**
+     * Gancho chamado a cada atualização, antes do movimento. Subclasses podem
+     * usá-lo para controlar o tempo (ex.: fantasma que alterna entre perseguir e
+     * fugir).
+     */
+    protected void aoPassarTempo(double dt) {
+        // por padrão, nada a fazer
+    }
+
+    /**
+     * Indica se a célula vizinha na direção dada é um corredor (a partir da célula
+     * atual).
+     */
     protected final boolean podeAndar(Labirinto labirinto, Direction d) {
         return !labirinto.ehParede(coluna + d.getDx(), linha + d.getDy());
     }
@@ -72,9 +90,14 @@ public abstract class Personagem extends Entidade {
         }
         if (!(dt > 0.0)) {
             return;
-        }
 
-        double restante = velocidade * dt /2;
+        }
+        if (!(dt > 0.0)) {
+            return;
+        }
+        aoPassarTempo(dt); // <-- NOVA LINHA
+
+        double restante = velocidade * dt / 2;
         while (restante > EPSILON) {
             if (progresso == 0.0) {
                 // No centro de uma célula: hora de decidir para onde ir.

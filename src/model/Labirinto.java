@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
-
+import java.util.Arrays;
 /**
  * Mapa do jogo em grade, definido por uma matriz de caracteres:
  * <ul>
@@ -217,6 +217,36 @@ public class Labirinto {
         return paredes[linha][coluna];
     }
 
+        /**
+     * Distância em passos, andando só por corredores, de cada célula até a célula
+     * (coluna, linha) dada. Retorna uma matriz [linha][coluna]; paredes e células
+     * inalcançáveis valem -1. É a base da perseguição dos fantasmas.
+     */
+    public int[][] calcularDistancias(int coluna, int linha) {
+        int[][] distancias = new int[linhas][colunas];
+        for (int[] l : distancias) {
+            Arrays.fill(l, -1);
+        }
+        if (ehParede(coluna, linha)) {
+            return distancias;
+        }
+
+        Deque<int[]> fila = new ArrayDeque<>();
+        distancias[linha][coluna] = 0;
+        fila.add(new int[] {coluna, linha});
+        while (!fila.isEmpty()) {
+            int[] atual = fila.poll();
+            for (Direction d : Direction.values()) {
+                int c = atual[0] + d.getDx();
+                int l = atual[1] + d.getDy();
+                if (!ehParede(c, l) && distancias[l][c] < 0) {
+                    distancias[l][c] = distancias[atual[1]][atual[0]] + 1;
+                    fila.add(new int[] {c, l});
+                }
+            }
+        }
+        return distancias;
+    }
     public Posicao getInicioPacman() {
         return inicioPacman;
     }

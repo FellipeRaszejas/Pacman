@@ -22,12 +22,20 @@ import java.util.Random;
 
 /**
  * Coração do jogo: possui o loop e aplica as regras (movimento, colisão, coleta
- * de itens, pontuação, vitória e game over).
+ * de itens, pontuação, vidas, vitória e game over).
  * Não desenha nada; a view apenas lê o estado por meio dos getters.
+ * <p>
+ * Fluxo da partida: {@code PRONTO} (pausa) → {@code JOGANDO} → ao tocar em um
+ * fantasma perde uma vida e volta para {@code PRONTO}; sem vidas, {@code GAME_OVER};
+ * sem itens, {@code VITORIA}.
  * <p>
  * {@link #atualizar(double)} é público para permitir testar a lógica sem janela.
  */
 public class GameEngine {
+
+    public static final int VIDAS_INICIAIS = 3;
+    /** Segundos de pausa ("PRONTO!") no início da partida e depois de perder uma vida. */
+    public static final double DURACAO_PRONTO = 2.0;
 
     private static final int PERIODO_MS = 16;
     /** Evita que um travamento da janela vire um "salto" gigante dos personagens. */
@@ -39,7 +47,10 @@ public class GameEngine {
     private final List<Item> itens = new ArrayList<>();
     private Pacman pacman;
     private int pontuacao;
+    private int vidas;
     private EstadoJogo estado;
+    private double tempoPronto;   // segundos que faltam para sair do PRONTO
+    private double tempoDaRodada; // segundos jogados desde a última largada
 
     private Timer timer;
     private Runnable aoAtualizar;
@@ -60,12 +71,26 @@ public class GameEngine {
 
     // ---------------------------------------------------------------- partida
 
-    /** Recomeça a partida: personagens nas posições iniciais, itens repostos e placar zerado. */
+    /** Recomeça tudo: itens repostos, placar zerado e vidas de volta ao máximo. */
     public void reiniciar() {
         montarPartida();
     }
 
     private void montarPartida() {
+        itens.clear();
+        for (Posicao p : labirinto.getPosicoesPilulas()) {
+            itens.add(new Pilula(p.getColuna(), p.getLinha()));
+        }
+        for (Posicao p : labirinto.getPosicoesFrutas()) {
+            itens.add(new Fruta(p.getColuna(), p.getLinha()));
+        }
+        pontuacao = 0;
+        vidas = VIDAS_INICIAIS;
+        posicionarPersonagens();
+    }
+
+    /** Devolve Pacman e fantasmas às posições iniciais e abre a pausa "PRONTO!". Itens e placar ficam como estão. */
+    private void posicionarPersonagens() {
         Posicao inicio = labirinto.getInicioPacman();
         pacman = new Pacman(inicio.getColuna(), inicio.getLinha());
 
@@ -75,28 +100,23 @@ public class GameEngine {
             fantasmas.add(criarFantasma(i, inicios.get(i)));
         }
 
-        itens.clear();
-        for (Posicao p : labirinto.getPosicoesPilulas()) {
-            itens.add(new Pilula(p.getColuna(), p.getLinha()));
-        }
-        for (Posicao p : labirinto.getPosicoesFrutas()) {
-            itens.add(new Fruta(p.getColuna(), p.getLinha()));
-        }
-
-        pontuacao = 0;
-        estado = EstadoJogo.JOGANDO;
+        tempoDaRodada = 0.0;
+        tempoPronto = DURACAO_PRONTO;
+        estado = EstadoJogo.PRONTO;
     }
 
     private Fantasma criarFantasma(int indice, Posicao p) {
+        int coluna = p.getColuna();
+        int linha = p.getLinha();
         switch (indice % 4) {
             case 0:
-                return new FantasmaVermelho(p.getColuna(), p.getLinha(), random);
+                return new FantasmaVermelho(coluna, linha, pacman, random);
             case 1:
-                return new FantasmaRosa(p.getColuna(), p.getLinha(), random);
+                return new FantasmaRosa(coluna, linha, pacman, random);
             case 2:
-                return new FantasmaCiano(p.getColuna(), p.getLinha(), random);
+                return new FantasmaCiano(coluna, linha, pacman, random);
             default:
-                return new FantasmaLaranja(p.getColuna(), p.getLinha(), random);
+                return new FantasmaLaranja(coluna, linha, pacman, random);
         }
     }
 
@@ -130,33 +150,55 @@ public class GameEngine {
 
     // ----------------------------------------------------------------- regras
 
-    /** Avança o jogo {@code dt} segundos. Com game over ou vitória, nada mais se move. */
+    /** Avança o jogo {@code dt} segundos. Em game over ou vitória, nada mais se move. */
     public void atualizar(double dt) {
-        if (estado != EstadoJogo.JOGANDO) {
+        if (estado == EstadoJogo.GAME_OVER || estado == EstadoJogo.VITORIA || !(dt > 0.0)) {
             return;
         }
         double passo = Math.min(dt, DT_MAXIMO);
 
+        if (estado == EstadoJogo.PRONTO) {
+            tempoPronto -= passo;
+            if (tempoPronto <= 0.0) {
+                estado = EstadoJogo.JOGANDO;
+            }
+            return;
+        }
+
+        tempoDaRodada += passo;
         pacman.atualizar(labirinto, passo);
         for (Fantasma f : fantasmas) {
-            f.atualizar(labirinto, passo);
+            // Cada fantasma sai da casa no seu tempo (atraso de saída).
+            if (tempoDaRodada >= f.getAtrasoDeSaida()) {
+                f.atualizar(labirinto, passo);
+            }
         }
 
-        // A derrota tem prioridade: se o Pacman pega o último item e encosta
-        // em um fantasma no mesmo quadro, o jogador perde.
-        verificarColisoes();
-        if (estado == EstadoJogo.JOGANDO) {
-            coletarItens();
-            verificarVitoria();
+        // A derrota tem prioridade sobre a coleta no mesmo quadro.
+        if (tocouEmFantasma()) {
+            perderVida();
+            return;
         }
+        coletarItens();
+        verificarVitoria();
     }
 
-    private void verificarColisoes() {
+    private boolean tocouEmFantasma() {
         for (Fantasma f : fantasmas) {
             if (pacman.colideCom(f)) {
-                estado = EstadoJogo.GAME_OVER;
-                return;
+                return true;
             }
+        }
+        return false;
+    }
+
+    private void perderVida() {
+        vidas--;
+        if (vidas <= 0) {
+            vidas = 0;
+            estado = EstadoJogo.GAME_OVER;
+        } else {
+            posicionarPersonagens();
         }
     }
 
@@ -178,9 +220,9 @@ public class GameEngine {
         }
     }
 
-    /** Comando do jogador (teclado). Ignorado depois do fim da partida. */
+    /** Comando do jogador (teclado). Vale também durante o "PRONTO!", para largar já andando. */
     public void direcionarPacman(Direction direcao) {
-        if (estado == EstadoJogo.JOGANDO) {
+        if (estado == EstadoJogo.JOGANDO || estado == EstadoJogo.PRONTO) {
             pacman.setDirecaoDesejada(direcao);
         }
     }
@@ -210,6 +252,10 @@ public class GameEngine {
 
     public int getPontuacao() {
         return pontuacao;
+    }
+
+    public int getVidas() {
+        return vidas;
     }
 
     public EstadoJogo getEstado() {
