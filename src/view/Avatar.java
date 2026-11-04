@@ -1,23 +1,29 @@
 package view;
 
 import java.awt.AlphaComposite;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 
 /**
- * Imagem recortada em círculo, escalada para o tamanho pedido. O resultado fica
- * em cache e só é recalculado quando o tamanho muda (ex.: a janela foi redimensionada).
+ * Imagem com fundo transparente (PNG), escalada para o tamanho pedido. Nada é
+ * desenhado em volta: o que aparece é só o que está opaco no PNG.
  * <p>
- * A redução é feita em etapas (cada passo reduz pela metade no máximo), porque
- * reduzir uma imagem grande de uma vez só serrilha o desenho.
+ * O resultado fica em cache e só é recalculado quando o tamanho (ou a cor do
+ * tingimento) muda. A redução é feita em etapas, porque reduzir uma imagem
+ * grande de uma vez só serrilha o desenho.
  */
 public class Avatar {
 
     private final BufferedImage original;
+
     private int ladoEmCache = -1;
     private BufferedImage cache;
+
+    private int ladoTingido = -1;
+    private int corTingida = -1;
+    private BufferedImage cacheTingido;
 
     public Avatar(BufferedImage original) {
         if (original == null) {
@@ -26,16 +32,39 @@ public class Avatar {
         this.original = original;
     }
 
-    /** Imagem circular com {@code lado} x {@code lado} pixels, com bordas suavizadas. */
+    /** Imagem {@code lado} x {@code lado} pixels, com a transparência preservada. */
     public BufferedImage obter(int lado) {
         if (lado < 1) {
             throw new IllegalArgumentException("O tamanho deve ser positivo.");
         }
         if (cache == null || lado != ladoEmCache) {
-            cache = recortarEmCirculo(reduzir(original, lado));
+            cache = reduzir(original, lado);
             ladoEmCache = lado;
         }
         return cache;
+    }
+
+    /**
+     * A mesma imagem com uma camada de cor por cima, só nos pixels opacos (o
+     * fundo transparente continua transparente). Serve para mostrar um estado,
+     * como o fantasma fugindo.
+     */
+    public BufferedImage obterTingido(int lado, int rgb, float forca) {
+        int chave = rgb ^ Float.floatToIntBits(forca);
+        if (cacheTingido == null || lado != ladoTingido || chave != corTingida) {
+            BufferedImage base = obter(lado);
+            BufferedImage saida = new BufferedImage(lado, lado, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = saida.createGraphics();
+            g.drawImage(base, 0, 0, null);
+            g.setComposite(AlphaComposite.SrcAtop.derive(forca)); // só sobre o que já é opaco
+            g.setColor(new Color(rgb));
+            g.fillRect(0, 0, lado, lado);
+            g.dispose();
+            cacheTingido = saida;
+            ladoTingido = lado;
+            corTingida = chave;
+        }
+        return cacheTingido;
     }
 
     private static BufferedImage reduzir(BufferedImage imagem, int lado) {
@@ -52,19 +81,6 @@ public class Avatar {
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g.drawImage(imagem, 0, 0, lado, lado, null);
-        g.dispose();
-        return saida;
-    }
-
-    /** Mantém só o que está dentro do círculo, com a borda antialiased. */
-    private static BufferedImage recortarEmCirculo(BufferedImage imagem) {
-        int lado = imagem.getWidth();
-        BufferedImage saida = new BufferedImage(lado, lado, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = saida.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.fill(new Ellipse2D.Double(0, 0, lado, lado)); // máscara
-        g.setComposite(AlphaComposite.SrcIn);           // só o que cai dentro da máscara
-        g.drawImage(imagem, 0, 0, null);
         g.dispose();
         return saida;
     }

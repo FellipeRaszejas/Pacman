@@ -24,7 +24,9 @@ import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,9 +34,9 @@ import java.util.Map;
  * Nenhuma regra do jogo vive aqui. O labirinto é escalado e centralizado para
  * caber na janela, com uma faixa no topo para o HUD (pontos, vidas e itens restantes).
  * <p>
- * Personagens e itens são desenhados com formas geométricas simples (marcadores
- * de posição). Para usar seus próprios sprites, basta trocar os métodos
- * {@code desenharPacman}, {@code desenharFantasma} e {@code desenharItem}.
+ * Os fantasmas e o Pacman são desenhados só com as imagens PNG (fundo transparente).
+ * Antes da partida há uma tela para escolher qual personagem será o Pacman. Se uma
+ * imagem não for encontrada, o personagem cai num desenho simples.
  */
 public class GamePanel extends JPanel {
 
@@ -63,13 +65,32 @@ public class GamePanel extends JPanel {
         TECLAS.put(KeyEvent.VK_RIGHT, Direction.RIGHT);
     }
 
-    /** Diâmetro do rosto do fantasma, como fração da célula. */
-    private static final double DIAMETRO_AVATAR = 0.95;
+    /** Tamanho das imagens dos personagens, como fração da célula. */
+    private static final double TAMANHO_AVATAR = 1.1;
+    /** Contorno amarelo no Pacman, para ele não se confundir com os fantasmas. */
+    private static final boolean CONTORNO_PACMAN = true;
+    /** Intensidade da camada azulada sobre o fantasma quando ele foge. */
+    private static final float FORCA_FUGA = 0.55f;
+
+    /** Um personagem que o jogador pode escolher para ser o Pacman. */
+    private static final class Opcao {
+        final String nome;
+        final Avatar avatar;
+
+        Opcao(String nome, Avatar avatar) {
+            this.nome = nome;
+            this.avatar = avatar;
+        }
+    }
 
     private final GameEngine engine;
     /** Qual imagem cada tipo de fantasma usa. Tipo sem imagem cai no desenho simples. */
     private final Map<Class<? extends Fantasma>, Avatar> avatares = new HashMap<>();
+    private final List<Opcao> opcoes = new ArrayList<>();
+    private int escolhido;
+    private boolean escolhendo;
     private Runnable aoAlternarSom;
+    private Runnable aoIniciarPartida;
 
     public GamePanel(GameEngine engine) {
         if (engine == null) {
@@ -79,6 +100,8 @@ public class GamePanel extends JPanel {
         setBackground(COR_FUNDO);
         setFocusable(true);
         carregarAvatares();
+        carregarOpcoesDePacman();
+        escolhendo = !opcoes.isEmpty();
 
         addKeyListener(new KeyAdapter() {
             @Override
@@ -86,6 +109,8 @@ public class GamePanel extends JPanel {
                 int tecla = e.getKeyCode();
                 if (tecla == KeyEvent.VK_ESCAPE) {
                     System.exit(0);
+                } else if (escolhendo) {
+                    teclaNaEscolha(tecla);
                 } else if (tecla == KeyEvent.VK_R) {
                     GamePanel.this.engine.reiniciar();
                 } else if (tecla == KeyEvent.VK_M) {
@@ -102,22 +127,65 @@ public class GamePanel extends JPanel {
         });
     }
 
+    /** O jogador ainda está na tela de escolha do Pacman? */
+    public boolean isEscolhendo() {
+        return escolhendo;
+    }
+
+    /** Ação executada quando a escolha termina (normalmente, iniciar o loop da engine). */
+    public void setAoIniciarPartida(Runnable aoIniciarPartida) {
+        this.aoIniciarPartida = aoIniciarPartida;
+    }
+
     /** Ação executada ao apertar M (ligar/desligar o som). */
     public void setAoAlternarSom(Runnable aoAlternarSom) {
         this.aoAlternarSom = aoAlternarSom;
     }
 
-    /**
-     * Duas imagens para quatro fantasmas: cada imagem serve a dois deles, e a
-     * cor do anel mostra qual é qual. Para trocar, mude as linhas abaixo.
-     */
+    /** Uma imagem para cada fantasma. Para trocar quem é quem, mude as linhas abaixo. */
     private void carregarAvatares() {
-        Avatar imagem1 = criarAvatar("image/fantasma1.png");
-        Avatar imagem2 = criarAvatar("image/fantasma2.png");
-        registrar(FantasmaVermelho.class, imagem1);
-        registrar(FantasmaRosa.class, imagem2);
-        registrar(FantasmaCiano.class, imagem1);
-        registrar(FantasmaLaranja.class, imagem2);
+        registrar(FantasmaVermelho.class, criarAvatar("image/fantasma1.png"));
+        registrar(FantasmaRosa.class, criarAvatar("image/fantasma2.png"));
+        registrar(FantasmaCiano.class, criarAvatar("image/deiv.png"));
+        registrar(FantasmaLaranja.class, criarAvatar("image/glauco.png"));
+    }
+
+    /** Personagens que podem ser o Pacman. Só entram os que tiverem imagem. */
+    private void carregarOpcoesDePacman() {
+        adicionarOpcao("Fellipe", criarAvatar("image/fellipe.png"));
+        adicionarOpcao("Ana Júlia", criarAvatar("image/anajulia.png"));
+    }
+
+    private void adicionarOpcao(String nome, Avatar avatar) {
+        if (avatar != null) {
+            opcoes.add(new Opcao(nome, avatar));
+        }
+    }
+
+    private void teclaNaEscolha(int tecla) {
+        if (tecla == KeyEvent.VK_LEFT || tecla == KeyEvent.VK_A) {
+            escolhido = (escolhido + opcoes.size() - 1) % opcoes.size();
+        } else if (tecla == KeyEvent.VK_RIGHT || tecla == KeyEvent.VK_D) {
+            escolhido = (escolhido + 1) % opcoes.size();
+        } else if (tecla == KeyEvent.VK_1 || tecla == KeyEvent.VK_2) {
+            int indice = tecla - KeyEvent.VK_1;
+            if (indice < opcoes.size()) {
+                escolhido = indice;
+                confirmarEscolha();
+            }
+        } else if (tecla == KeyEvent.VK_ENTER || tecla == KeyEvent.VK_SPACE) {
+            confirmarEscolha();
+        } else if (tecla == KeyEvent.VK_M && aoAlternarSom != null) {
+            aoAlternarSom.run();
+        }
+        repaint();
+    }
+
+    private void confirmarEscolha() {
+        escolhendo = false;
+        if (aoIniciarPartida != null) {
+            aoIniciarPartida.run();
+        }
     }
 
     private static Avatar criarAvatar(String caminho) {
@@ -134,6 +202,14 @@ public class GamePanel extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
+
+        if (escolhendo) {
+            Graphics2D tela = (Graphics2D) g.create();
+            tela.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            desenharEscolha(tela);
+            tela.dispose();
+            return;
+        }
 
         Labirinto lab = engine.getLabirinto();
         int celula = Math.min(getWidth() / lab.getColunas(),
@@ -182,17 +258,27 @@ public class GamePanel extends JPanel {
         String restantes = "ITENS: " + engine.getItensRestantes();
         g.drawString(restantes, offX + larguraMapa - fm.stringWidth(restantes), baseline);
 
-        // Vidas: um círculo amarelo para cada vida restante.
+        // Vidas: o rosto do Pacman escolhido (ou um círculo amarelo) para cada vida restante.
         int diametro = (int) (celula * 0.8);
         int espaco = (int) (celula * 0.3);
         int vidas = engine.getVidas();
         int total = vidas * diametro + Math.max(0, vidas - 1) * espaco;
         int x = offX + (larguraMapa - total) / 2;
         int y = topo + (int) (celula * 0.55);
+        Avatar rosto = avatarDoPacman();
         g.setColor(COR_PACMAN);
         for (int i = 0; i < vidas; i++) {
-            g.fillOval(x + i * (diametro + espaco), y, diametro, diametro);
+            int xi = x + i * (diametro + espaco);
+            if (rosto != null) {
+                g.drawImage(rosto.obter(diametro), xi, y, null);
+            } else {
+                g.fillOval(xi, y, diametro, diametro);
+            }
         }
+    }
+
+    private Avatar avatarDoPacman() {
+        return opcoes.isEmpty() ? null : opcoes.get(escolhido).avatar;
     }
 
     /** Contorna apenas as faces das paredes voltadas para corredores. */
@@ -244,19 +330,35 @@ public class GamePanel extends JPanel {
     }
 
     private void desenharPacman(Graphics2D g, Pacman p, int celula, int offX, int offY) {
-        int lado = (int) Math.round(p.getTamanho() * celula);
-        int px = offX + (int) Math.round((p.getX() + 0.5) * celula) - lado / 2;
-        int py = offY + (int) Math.round((p.getY() + 0.5) * celula) - lado / 2;
-        g.setColor(COR_PACMAN);
-        g.fillOval(px, py, lado, lado);
+        Avatar rosto = avatarDoPacman();
+        int cx = offX + (int) Math.round((p.getX() + 0.5) * celula);
+        int cy = offY + (int) Math.round((p.getY() + 0.5) * celula);
+
+        if (rosto == null) {
+            int lado = (int) Math.round(p.getTamanho() * celula);
+            g.setColor(COR_PACMAN);
+            g.fillOval(cx - lado / 2, cy - lado / 2, lado, lado);
+            return;
+        }
+
+        int lado = Math.max(2, (int) Math.round(TAMANHO_AVATAR * celula));
+        int px = cx - lado / 2;
+        int py = cy - lado / 2;
+        if (CONTORNO_PACMAN) {
+            int fino = Math.max(2, lado / 14);
+            g.setColor(COR_PACMAN);
+            g.setStroke(new BasicStroke(fino));
+            g.drawOval(px + fino / 2, py + fino / 2, lado - fino, lado - fino);
+        }
+        g.drawImage(rosto.obter(lado), px, py, null);
     }
 
+    /** Fantasma: só a imagem PNG, sem círculo nem anel. Sem imagem, um quadrado colorido. */
     private void desenharFantasma(Graphics2D g, Fantasma f, int celula, int offX, int offY) {
-        Color cor = new Color(f.getCor()); // getCor() é polimórfico: o ciano muda de cor ao fugir
         Avatar avatar = avatares.get(f.getClass());
 
         if (avatar == null) {
-            // Sem imagem: quadrado arredondado colorido.
+            Color cor = new Color(f.getCor());
             int lado = (int) Math.round(f.getTamanho() * celula);
             int px = offX + (int) Math.round((f.getX() + 0.5) * celula) - lado / 2;
             int py = offY + (int) Math.round((f.getY() + 0.5) * celula) - lado / 2;
@@ -265,17 +367,58 @@ public class GamePanel extends JPanel {
             return;
         }
 
-        // Com imagem: disco na cor do fantasma, rosto por cima e um anel na mesma cor.
-        int lado = Math.max(2, (int) Math.round(DIAMETRO_AVATAR * celula));
+        int lado = Math.max(2, (int) Math.round(TAMANHO_AVATAR * celula));
         int px = offX + (int) Math.round((f.getX() + 0.5) * celula) - lado / 2;
         int py = offY + (int) Math.round((f.getY() + 0.5) * celula) - lado / 2;
-        g.setColor(cor);
-        g.fillOval(px, py, lado, lado);
-        g.drawImage(avatar.obter(lado), px, py, null);
 
-        int anel = Math.max(2, lado / 10);
-        g.setStroke(new BasicStroke(anel));
-        g.drawOval(px + anel / 2, py + anel / 2, lado - anel, lado - anel);
+        // Sem anel para indicar o estado: quando o Ciano foge, a imagem fica azulada.
+        boolean fugindo = (f instanceof FantasmaCiano) && ((FantasmaCiano) f).isFugindo();
+        g.drawImage(fugindo ? avatar.obterTingido(lado, FantasmaCiano.COR_FUGA, FORCA_FUGA)
+                            : avatar.obter(lado), px, py, null);
+    }
+
+    /** Tela inicial: o jogador escolhe quem será o Pacman. */
+    private void desenharEscolha(Graphics2D g) {
+        g.setColor(COR_FUNDO);
+        g.fillRect(0, 0, getWidth(), getHeight());
+
+        int base = Math.max(12, Math.min(getWidth(), getHeight()) / 22);
+        g.setColor(COR_PACMAN);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, base * 2));
+        centralizar(g, "ESCOLHA SEU PACMAN", base * 3);
+
+        int n = opcoes.size();
+        int carta = Math.min(getWidth() / (n + 1), (int) (getHeight() * 0.5));
+        int espaco = carta / 4;
+        int total = n * carta + (n - 1) * espaco;
+        int x0 = (getWidth() - total) / 2;
+        int y0 = (getHeight() - carta) / 2;
+
+        for (int i = 0; i < n; i++) {
+            int x = x0 + i * (carta + espaco);
+            boolean ativo = (i == escolhido);
+            if (ativo) {
+                g.setColor(new Color(255, 214, 0, 40));
+                g.fillRoundRect(x - espaco / 3, y0 - espaco / 3, carta + 2 * espaco / 3,
+                        carta + 2 * espaco / 3, base, base);
+                g.setColor(COR_PACMAN);
+                g.setStroke(new BasicStroke(Math.max(3f, base / 6f)));
+                g.drawRoundRect(x - espaco / 3, y0 - espaco / 3, carta + 2 * espaco / 3,
+                        carta + 2 * espaco / 3, base, base);
+            }
+            g.drawImage(opcoes.get(i).avatar.obter(carta), x, y0, null);
+
+            g.setFont(new Font(Font.SANS_SERIF, ativo ? Font.BOLD : Font.PLAIN, base));
+            g.setColor(ativo ? COR_PACMAN : Color.LIGHT_GRAY);
+            FontMetrics fm = g.getFontMetrics();
+            String rotulo = (i + 1) + " - " + opcoes.get(i).nome;
+            g.drawString(rotulo, x + (carta - fm.stringWidth(rotulo)) / 2, y0 + carta + espaco + base / 2);
+        }
+
+        g.setColor(Color.WHITE);
+        g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, Math.max(12, base * 2 / 3)));
+        centralizar(g, "← → ou A D para trocar     ENTER para jogar     ESC para sair",
+                getHeight() - base * 2);
     }
 
     /** "PRONTO!" logo abaixo da casa dos fantasmas, como no jogo clássico. */

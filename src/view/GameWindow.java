@@ -23,6 +23,8 @@ public class GameWindow extends JFrame {
         SomDoJogo som = new SomDoJogo();
         engine.setEventos(som);
         painel.setAoAlternarSom(som::alternarMudo);
+        // A partida só começa depois que o jogador escolhe o Pacman.
+        painel.setAoIniciarPartida(() -> engine.iniciar(painel::repaint));
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setUndecorated(true);
@@ -36,6 +38,9 @@ public class GameWindow extends JFrame {
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setVisible(true);
         painel.requestFocusInWindow();
-        engine.iniciar(painel::repaint);
+        if (!painel.isEscolhendo()) {
+            // Nenhuma imagem de Pacman encontrada: começa direto, com o desenho simples.
+            engine.iniciar(painel::repaint);
+        }
     }
 }
