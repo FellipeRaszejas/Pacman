@@ -52,6 +52,7 @@ public class GameEngine {
     private double tempoPronto;   // segundos que faltam para sair do PRONTO
     private double tempoDaRodada; // segundos jogados desde a última largada
 
+    private EventosDoJogo eventos = new EventosDoJogo() { };
     private Timer timer;
     private Runnable aoAtualizar;
     private long ultimoTickNs;
@@ -71,9 +72,15 @@ public class GameEngine {
 
     // ---------------------------------------------------------------- partida
 
+    /** Quem será avisado dos acontecimentos do jogo (som, por exemplo). {@code null} desliga os avisos. */
+    public void setEventos(EventosDoJogo eventos) {
+        this.eventos = (eventos != null) ? eventos : new EventosDoJogo() { };
+    }
+
     /** Recomeça tudo: itens repostos, placar zerado e vidas de volta ao máximo. */
     public void reiniciar() {
         montarPartida();
+        eventos.aoIniciarPartida();
     }
 
     private void montarPartida() {
@@ -128,6 +135,7 @@ public class GameEngine {
         this.ultimoTickNs = System.nanoTime();
         this.timer = new Timer(PERIODO_MS, e -> tick());
         this.timer.start();
+        eventos.aoIniciarPartida();
     }
 
     public void parar() {
@@ -197,8 +205,10 @@ public class GameEngine {
         if (vidas <= 0) {
             vidas = 0;
             estado = EstadoJogo.GAME_OVER;
+            eventos.aoGameOver();
         } else {
             posicionarPersonagens();
+            eventos.aoPerderVida();
         }
     }
 
@@ -210,6 +220,7 @@ public class GameEngine {
             if (pacman.colideCom(item)) {
                 pontuacao += item.getPontos();
                 itens.remove(i);
+                eventos.aoColetarItem(item);
             }
         }
     }
@@ -217,6 +228,7 @@ public class GameEngine {
     private void verificarVitoria() {
         if (itens.isEmpty()) {
             estado = EstadoJogo.VITORIA;
+            eventos.aoVencer();
         }
     }
 

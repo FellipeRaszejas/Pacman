@@ -4,6 +4,10 @@ import controller.GameEngine;
 import model.Direction;
 import model.EstadoJogo;
 import model.Fantasma;
+import model.FantasmaCiano;
+import model.FantasmaLaranja;
+import model.FantasmaRosa;
+import model.FantasmaVermelho;
 import model.Fruta;
 import model.Item;
 import model.Labirinto;
@@ -19,13 +23,14 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Só desenha o estado do {@link GameEngine} e repassa o teclado a ele.
  * Nenhuma regra do jogo vive aqui. O labirinto é escalado e centralizado para
- * caber na janela, com uma faixa no topo para o HUD (pontos e itens restantes).
+ * caber na janela, com uma faixa no topo para o HUD (pontos, vidas e itens restantes).
  * <p>
  * Personagens e itens são desenhados com formas geométricas simples (marcadores
  * de posição). Para usar seus próprios sprites, basta trocar os métodos
@@ -58,7 +63,13 @@ public class GamePanel extends JPanel {
         TECLAS.put(KeyEvent.VK_RIGHT, Direction.RIGHT);
     }
 
+    /** Diâmetro do rosto do fantasma, como fração da célula. */
+    private static final double DIAMETRO_AVATAR = 0.95;
+
     private final GameEngine engine;
+    /** Qual imagem cada tipo de fantasma usa. Tipo sem imagem cai no desenho simples. */
+    private final Map<Class<? extends Fantasma>, Avatar> avatares = new HashMap<>();
+    private Runnable aoAlternarSom;
 
     public GamePanel(GameEngine engine) {
         if (engine == null) {
@@ -67,6 +78,7 @@ public class GamePanel extends JPanel {
         this.engine = engine;
         setBackground(COR_FUNDO);
         setFocusable(true);
+        carregarAvatares();
 
         addKeyListener(new KeyAdapter() {
             @Override
@@ -76,6 +88,10 @@ public class GamePanel extends JPanel {
                     System.exit(0);
                 } else if (tecla == KeyEvent.VK_R) {
                     GamePanel.this.engine.reiniciar();
+                } else if (tecla == KeyEvent.VK_M) {
+                    if (aoAlternarSom != null) {
+                        aoAlternarSom.run();
+                    }
                 } else {
                     Direction d = TECLAS.get(tecla);
                     if (d != null) {
@@ -84,6 +100,35 @@ public class GamePanel extends JPanel {
                 }
             }
         });
+    }
+
+    /** Ação executada ao apertar M (ligar/desligar o som). */
+    public void setAoAlternarSom(Runnable aoAlternarSom) {
+        this.aoAlternarSom = aoAlternarSom;
+    }
+
+    /**
+     * Duas imagens para quatro fantasmas: cada imagem serve a dois deles, e a
+     * cor do anel mostra qual é qual. Para trocar, mude as linhas abaixo.
+     */
+    private void carregarAvatares() {
+        Avatar imagem1 = criarAvatar("image/fantasma1.png");
+        Avatar imagem2 = criarAvatar("image/fantasma2.png");
+        registrar(FantasmaVermelho.class, imagem1);
+        registrar(FantasmaRosa.class, imagem2);
+        registrar(FantasmaCiano.class, imagem1);
+        registrar(FantasmaLaranja.class, imagem2);
+    }
+
+    private static Avatar criarAvatar(String caminho) {
+        BufferedImage imagem = CarregadorDeImagens.carregar(caminho);
+        return (imagem != null) ? new Avatar(imagem) : null;
+    }
+
+    private void registrar(Class<? extends Fantasma> tipo, Avatar avatar) {
+        if (avatar != null) {
+            avatares.put(tipo, avatar);
+        }
     }
 
     @Override
@@ -114,7 +159,7 @@ public class GamePanel extends JPanel {
         }
         desenharPacman(g2, engine.getPacman(), celula, offX, offY);
 
-               EstadoJogo estado = engine.getEstado();
+        EstadoJogo estado = engine.getEstado();
         if (estado == EstadoJogo.PRONTO) {
             desenharPronto(g2, lab, celula, offX, offY);
         } else if (estado == EstadoJogo.GAME_OVER) {
@@ -124,11 +169,8 @@ public class GamePanel extends JPanel {
         }
         g2.dispose();
     }
-    /** Faixa superior: pontuação à esquerda e itens restantes à direita, alinhados ao mapa. */
-    /**
-     * Faixa superior: pontuação à esquerda, vidas no centro e itens restantes à
-     * direita.
-     */
+
+    /** Faixa superior: pontuação à esquerda, vidas no centro e itens restantes à direita. */
     private void desenharHud(Graphics2D g, int celula, int offX, int topo, int larguraMapa) {
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(12, (int) (celula * 0.8))));
         g.setColor(Color.WHITE);
@@ -210,11 +252,30 @@ public class GamePanel extends JPanel {
     }
 
     private void desenharFantasma(Graphics2D g, Fantasma f, int celula, int offX, int offY) {
-        int lado = (int) Math.round(f.getTamanho() * celula);
+        Color cor = new Color(f.getCor()); // getCor() é polimórfico: o ciano muda de cor ao fugir
+        Avatar avatar = avatares.get(f.getClass());
+
+        if (avatar == null) {
+            // Sem imagem: quadrado arredondado colorido.
+            int lado = (int) Math.round(f.getTamanho() * celula);
+            int px = offX + (int) Math.round((f.getX() + 0.5) * celula) - lado / 2;
+            int py = offY + (int) Math.round((f.getY() + 0.5) * celula) - lado / 2;
+            g.setColor(cor);
+            g.fillRoundRect(px, py, lado, lado, lado / 3, lado / 3);
+            return;
+        }
+
+        // Com imagem: disco na cor do fantasma, rosto por cima e um anel na mesma cor.
+        int lado = Math.max(2, (int) Math.round(DIAMETRO_AVATAR * celula));
         int px = offX + (int) Math.round((f.getX() + 0.5) * celula) - lado / 2;
         int py = offY + (int) Math.round((f.getY() + 0.5) * celula) - lado / 2;
-        g.setColor(new Color(f.getCor()));
-        g.fillRoundRect(px, py, lado, lado, lado / 3, lado / 3);
+        g.setColor(cor);
+        g.fillOval(px, py, lado, lado);
+        g.drawImage(avatar.obter(lado), px, py, null);
+
+        int anel = Math.max(2, lado / 10);
+        g.setStroke(new BasicStroke(anel));
+        g.drawOval(px + anel / 2, py + anel / 2, lado - anel, lado - anel);
     }
 
     /** "PRONTO!" logo abaixo da casa dos fantasmas, como no jogo clássico. */
@@ -228,10 +289,7 @@ public class GamePanel extends JPanel {
         g.drawString(texto, centro - fm.stringWidth(texto) / 2, baseline);
     }
 
-    /**
-     * Tela de fim de partida (derrota ou vitória): título, pontuação final e
-     * instruções.
-     */
+    /** Tela de fim de partida (derrota ou vitória): título, pontuação final e instruções. */
     private void desenharFim(Graphics2D g, String titulo, Color corTitulo) {
         g.setColor(new Color(0, 0, 0, 170));
         g.fillRect(0, 0, getWidth(), getHeight());

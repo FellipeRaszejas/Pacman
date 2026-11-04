@@ -1,5 +1,6 @@
 package view;
 
+import audio.SomDoJogo;
 import controller.GameEngine;
 import model.Labirinto;
 
@@ -14,10 +15,14 @@ public class GameWindow extends JFrame {
     private final GamePanel painel;
 
     public GameWindow() {
-        super("Pacman - Fase 1");
+        super("Pacman");
 
         this.engine = new GameEngine(Labirinto.padrao());
         this.painel = new GamePanel(engine);
+
+        SomDoJogo som = new SomDoJogo();
+        engine.setEventos(som);
+        painel.setAoAlternarSom(som::alternarMudo);
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setUndecorated(true);
