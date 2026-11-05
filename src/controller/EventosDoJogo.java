@@ -30,4 +30,12 @@ public interface EventosDoJogo {
     /** O último item foi coletado. */
     default void aoVencer() {
     }
+
+    /** O Pacman comeu uma fruta e está poderoso: por um tempo, os fantasmas podem ser devorados. */
+    default void aoFicarPoderoso() {
+    }
+
+    /** O Pacman devorou um fantasma e ganhou {@code pontos}. */
+    default void aoComerFantasma(int pontos) {
+    }
 }

@@ -22,6 +22,17 @@ public final class Efeitos {
         return sintetizar(nota(660, 70), nota(880, 70), nota(1320, 130));
     }
 
+    /** Ao ficar poderoso: um arpejo que sobe e termina com um brilho. */
+    public static byte[] poder() {
+        return sintetizar(nota(392, 70), nota(523, 70), nota(659, 70), nota(784, 70),
+                deslizar(784, 1175, 180));
+    }
+
+    /** Ao devorar um fantasma: um mergulho rápido seguido de um "ping". */
+    public static byte[] comerFantasma() {
+        return sintetizar(deslizar(900, 250, 130), nota(1100, 90), nota(1480, 140));
+    }
+
     public static byte[] perderVida() {
         return sintetizar(deslizar(800, 500, 250), deslizar(600, 300, 250), deslizar(400, 100, 450));
     }

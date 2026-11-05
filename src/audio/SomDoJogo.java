@@ -18,6 +18,8 @@ public class SomDoJogo implements EventosDoJogo {
     private final Clip chompSobe;
     private final Clip chompDesce;
     private final Clip fruta;
+    private final Clip poder;
+    private final Clip comerFantasma;
     private final Clip perderVida;
     private final Clip gameOver;
     private final Clip vitoria;
@@ -31,11 +33,13 @@ public class SomDoJogo implements EventosDoJogo {
         chompSobe = criarClip(Efeitos.chomp(true));
         chompDesce = criarClip(Efeitos.chomp(false));
         fruta = criarClip(Efeitos.fruta());
+        poder = criarClip(Efeitos.poder());
+        comerFantasma = criarClip(Efeitos.comerFantasma());
         perderVida = criarClip(Efeitos.perderVida());
         gameOver = criarClip(Efeitos.gameOver());
         vitoria = criarClip(Efeitos.vitoria());
         inicio = criarClip(Efeitos.inicio());
-        todos = new Clip[] {chompSobe, chompDesce, fruta, perderVida, gameOver, vitoria, inicio};
+        todos = new Clip[] {chompSobe, chompDesce, fruta, poder, comerFantasma, perderVida, gameOver, vitoria, inicio};
 
         if (!disponivel()) {
             System.err.println("Áudio indisponível neste computador: o jogo seguirá sem som.");
@@ -104,6 +108,16 @@ public class SomDoJogo implements EventosDoJogo {
             tocar(proximoChompSobe ? chompSobe : chompDesce);
             proximoChompSobe = !proximoChompSobe;
         }
+    }
+
+    @Override
+    public void aoFicarPoderoso() {
+        tocar(poder);
+    }
+
+    @Override
+    public void aoComerFantasma(int pontos) {
+        tocar(comerFantasma);
     }
 
     @Override

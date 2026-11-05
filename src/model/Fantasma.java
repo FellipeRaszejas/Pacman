@@ -16,11 +16,16 @@ import java.util.Random;
 public abstract class Fantasma extends Personagem {
 
     public static final double TAMANHO = 0.8;
+    /** Fração da velocidade normal enquanto o fantasma está assustado. */
+    public static final double FATOR_ASSUSTADO = 0.6;
 
     private final int cor; // 0xRRGGBB, para o modelo não depender de AWT
     private final double atrasoDeSaida;
     private final Pacman alvo;
     private final Random random;
+    private final double velocidadeNormal;
+    private boolean assustado;
+    private boolean regenerando;
 
     /**
      * @param atrasoDeSaida segundos que o fantasma espera parado no início de cada rodada
@@ -38,6 +43,7 @@ public abstract class Fantasma extends Personagem {
         if (random == null) {
             throw new IllegalArgumentException("O gerador aleatório não pode ser nulo.");
         }
+        this.velocidadeNormal = velocidade;
         this.cor = cor;
         this.atrasoDeSaida = atrasoDeSaida;
         this.alvo = alvo;
@@ -51,6 +57,28 @@ public abstract class Fantasma extends Personagem {
 
     public double getAtrasoDeSaida() {
         return atrasoDeSaida;
+    }
+
+    /** Assustado = o Pacman está poderoso: o fantasma foge dele, mais devagar, e pode ser devorado. */
+    public boolean isAssustado() {
+        return assustado;
+    }
+
+    /**
+     * Regenerando = foi devorado e espera na casa para voltar. Fica inofensivo e não
+     * pode ser devorado de novo até sair.
+     */
+    public boolean isRegenerando() {
+        return regenerando;
+    }
+
+    public void setRegenerando(boolean regenerando) {
+        this.regenerando = regenerando;
+    }
+
+    public void setAssustado(boolean assustado) {
+        this.assustado = assustado;
+        setVelocidade(assustado ? velocidadeNormal * FATOR_ASSUSTADO : velocidadeNormal);
     }
 
     protected final Random getRandom() {
@@ -99,7 +127,14 @@ public abstract class Fantasma extends Personagem {
             return opcoes.get(0); // corredor ou curva: não há o que decidir
         }
 
-        Direction escolha = decidirDirecao(labirinto, opcoes);
+        Direction escolha;
+        if (assustado) {
+            // Medo é igual para todos: foge do Pacman, seja qual for a personalidade do fantasma.
+            int[][] ate = labirinto.calcularDistancias(colunaDoAlvo(), linhaDoAlvo());
+            escolha = afastar(ate, opcoes);
+        } else {
+            escolha = decidirDirecao(labirinto, opcoes);
+        }
         if (!opcoes.contains(escolha)) {
             // Uma subclasse com defeito não pode quebrar o jogo nem atravessar parede.
             return opcoes.get(random.nextInt(opcoes.size()));

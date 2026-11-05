@@ -13,6 +13,7 @@ import model.Labirinto;
 import model.Pacman;
 import model.Pilula;
 import model.Posicao;
+import model.TipoFruta;
 
 import javax.swing.Timer;
 import java.util.ArrayList;
@@ -36,6 +37,12 @@ public class GameEngine {
     public static final int VIDAS_INICIAIS = 3;
     /** Segundos de pausa ("PRONTO!") no início da partida e depois de perder uma vida. */
     public static final double DURACAO_PRONTO = 2.0;
+    /** Segundos de poder depois de comer uma fruta. */
+    public static final double DURACAO_PODER = 12.0;
+    /** Pontos do primeiro fantasma devorado; cada um seguinte vale o dobro (200, 400, 800, 1600). */
+    public static final int PONTOS_FANTASMA = 200;
+    /** Segundos que um fantasma devorado espera na casa antes de sair de novo. */
+    public static final double ATRASO_REENTRADA = 3.0;
 
     private static final int PERIODO_MS = 16;
     /** Evita que um travamento da janela vire um "salto" gigante dos personagens. */
@@ -51,6 +58,9 @@ public class GameEngine {
     private EstadoJogo estado;
     private double tempoPronto;   // segundos que faltam para sair do PRONTO
     private double tempoDaRodada; // segundos jogados desde a última largada
+    private double tempoDePoder;  // segundos que faltam para acabar o poder (0 = sem poder)
+    private int fantasmasDevorados; // quantos já foram devorados neste poder (define o combo)
+    private double[] liberadoEm = new double[0]; // instante (em tempoDaRodada) em que cada fantasma pode andar
 
     private EventosDoJogo eventos = new EventosDoJogo() { };
     private Timer timer;
@@ -88,8 +98,10 @@ public class GameEngine {
         for (Posicao p : labirinto.getPosicoesPilulas()) {
             itens.add(new Pilula(p.getColuna(), p.getLinha()));
         }
-        for (Posicao p : labirinto.getPosicoesFrutas()) {
-            itens.add(new Fruta(p.getColuna(), p.getLinha()));
+        List<Posicao> frutas = labirinto.getPosicoesFrutas();
+        for (int i = 0; i < frutas.size(); i++) {
+            Posicao p = frutas.get(i);
+            itens.add(new Fruta(p.getColuna(), p.getLinha(), TipoFruta.doIndice(i)));
         }
         pontuacao = 0;
         vidas = VIDAS_INICIAIS;
@@ -103,10 +115,15 @@ public class GameEngine {
 
         fantasmas.clear();
         List<Posicao> inicios = labirinto.getIniciosFantasmas();
+        liberadoEm = new double[inicios.size()];
         for (int i = 0; i < inicios.size(); i++) {
-            fantasmas.add(criarFantasma(i, inicios.get(i)));
+            Fantasma f = criarFantasma(i, inicios.get(i));
+            fantasmas.add(f);
+            liberadoEm[i] = f.getAtrasoDeSaida();
         }
 
+        tempoDePoder = 0.0;
+        fantasmasDevorados = 0;
         tempoDaRodada = 0.0;
         tempoPronto = DURACAO_PRONTO;
         estado = EstadoJogo.PRONTO;
@@ -175,29 +192,77 @@ public class GameEngine {
 
         tempoDaRodada += passo;
         pacman.atualizar(labirinto, passo);
-        for (Fantasma f : fantasmas) {
-            // Cada fantasma sai da casa no seu tempo (atraso de saída).
-            if (tempoDaRodada >= f.getAtrasoDeSaida()) {
+        for (int i = 0; i < fantasmas.size(); i++) {
+            // Cada fantasma sai da casa no seu tempo (atraso de saída, ou de reentrada se foi devorado).
+            if (tempoDaRodada >= liberadoEm[i]) {
+                Fantasma f = fantasmas.get(i);
+                if (f.isRegenerando()) {
+                    // Voltou à ativa: se o poder ainda dura, já sai assustado.
+                    f.setRegenerando(false);
+                    f.setAssustado(isPoderAtivo());
+                }
                 f.atualizar(labirinto, passo);
             }
         }
+        passarTempoDoPoder(passo);
 
-        // A derrota tem prioridade sobre a coleta no mesmo quadro.
-        if (tocouEmFantasma()) {
+        // A derrota tem prioridade: um fantasma que não está assustado manda na colisão.
+        if (tocouEmFantasmaPerigoso()) {
             perderVida();
             return;
         }
+        devorarFantasmasAssustados();
         coletarItens();
         verificarVitoria();
     }
 
-    private boolean tocouEmFantasma() {
+    private void passarTempoDoPoder(double passo) {
+        if (tempoDePoder <= 0.0) {
+            return;
+        }
+        tempoDePoder -= passo;
+        if (tempoDePoder <= 0.0) {
+            tempoDePoder = 0.0;
+            for (Fantasma f : fantasmas) {
+                f.setAssustado(false);
+            }
+        }
+    }
+
+    private void ativarPoder() {
+        tempoDePoder = DURACAO_PODER;
+        fantasmasDevorados = 0;
         for (Fantasma f : fantasmas) {
-            if (pacman.colideCom(f)) {
+            f.setAssustado(true);
+        }
+        eventos.aoFicarPoderoso();
+    }
+
+    private boolean tocouEmFantasmaPerigoso() {
+        for (Fantasma f : fantasmas) {
+            if (!f.isAssustado() && !f.isRegenerando() && pacman.colideCom(f)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Fantasma assustado tocado pelo Pacman é devorado: vale pontos e volta para a casa. */
+    private void devorarFantasmasAssustados() {
+        for (int i = 0; i < fantasmas.size(); i++) {
+            Fantasma f = fantasmas.get(i);
+            if (f.isAssustado() && !f.isRegenerando() && pacman.colideCom(f)) {
+                int pontos = PONTOS_FANTASMA << Math.min(fantasmasDevorados, 3);
+                fantasmasDevorados++;
+                pontuacao += pontos;
+                // Um fantasma novo na casa (já sem susto) substitui o devorado.
+                Fantasma novo = criarFantasma(i, labirinto.getIniciosFantasmas().get(i));
+                novo.setRegenerando(true);
+                fantasmas.set(i, novo);
+                liberadoEm[i] = tempoDaRodada + ATRASO_REENTRADA;
+                eventos.aoComerFantasma(pontos);
+            }
+        }
     }
 
     private void perderVida() {
@@ -221,6 +286,9 @@ public class GameEngine {
                 pontuacao += item.getPontos();
                 itens.remove(i);
                 eventos.aoColetarItem(item);
+                if (item.concedePoder()) {
+                    ativarPoder();
+                }
             }
         }
     }
@@ -268,6 +336,16 @@ public class GameEngine {
 
     public int getVidas() {
         return vidas;
+    }
+
+    /** O Pacman está poderoso (comeu uma fruta há pouco)? */
+    public boolean isPoderAtivo() {
+        return tempoDePoder > 0.0;
+    }
+
+    /** Segundos que ainda restam de poder; 0 quando não há poder. */
+    public double getTempoDePoder() {
+        return tempoDePoder;
     }
 
     public EstadoJogo getEstado() {
